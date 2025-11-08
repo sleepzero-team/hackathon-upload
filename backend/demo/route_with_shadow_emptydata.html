@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <link href="https://unpkg.com/material-components-web@6.0.0/dist/material-components-web.css" rel="stylesheet"/>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons"/>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCgjG5Kk_WD-F3oAIwgLtOSMb4IIsW6Cnc&callback=initialize&v=weekly" defer>
+
+    </script>
+    <style>
+        html {
+            height: 100%;
+        }
+
+        body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        #map {
+            height: 100%;
+        }
+
+        #map.over {
+            opacity: 0.5;
+            background-color: rgba(100, 100, 100, 0.5);
+        }
+
+        #sidebar {
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: auto;
+        }
+
+        .file {
+            display: flex;
+            flex-flow: column;
+            margin-top: 1em;
+            cursor: move;
+            text-align: center;
+        }
+
+        .file:hover .material-icons {
+            color: darkorange;
+        }
+
+        .file:hover .filename {
+            font-weight: bold;
+        }
+
+        .file .material-icons {
+            font-size: 50px;
+            color: orange;
+        }
+
+        .file .material-icons:hover {
+            color: darkorange;
+        }
+
+        .file .filename {
+            margin-top: 0.5em;
+            font-size: 20px;
+            color: #333333;
+        }
+
+        /* Optional: Makes the sample page fill the window. */
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+
+        #container {
+            height: 100%;
+            display: flex;
+        }
+
+        #sidebar {
+            flex-basis: 15rem;
+            flex-grow: 1;
+            padding: 1rem;
+            max-width: 30rem;
+            height: 100%;
+            box-sizing: border-box;
+            overflow: auto;
+        }
+
+        #map {
+            flex-basis: 0;
+            flex-grow: 4;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+<div id="container">
+    <div id="map"></div>
+</div>
+</body>
+<script>
+    /**
+     * @license
+     * Copyright 2019 Google LLC. All Rights Reserved.
+     * SPDX-License-Identifier: Apache-2.0
+     */
+    let map;
+
+    function initMap() {
+        map = new google.maps.Map(document.getElementById("map"), {
+            center: new google.maps.LatLng(25.02177462502842, 121.53512676260097),
+            zoom: 15,
+        });
+
+        map.data.setStyle((feature) => {
+            const featureKind = feature.getProperty("featureKind");
+
+            if (featureKind === "shadow") {
+                return {
+                    fillColor: "#5e35b1",
+                    fillOpacity: 0.35,
+                    strokeColor: "#4527a0",
+                    strokeWeight: 1,
+                };
+            }
+
+            if (featureKind === "route") {
+                const isBest = feature.getProperty("isBest");
+                return {
+                    strokeColor: isBest ? "#d32f2f" : "#0288d1",
+                    strokeOpacity: 0.95,
+                    strokeWeight: isBest ? 6 : 4,
+                };
+            }
+
+            return {};
+        });
+    }
+
+    function loadShadowGeoJson(geoJson) {
+        if (!geoJson) {
+            return;
+        }
+        const features = map.data.addGeoJson(geoJson);
+        features.forEach((feature) => feature.setProperty("featureKind", "shadow"));
+    }
+
+    function loadRouteDemo(routeData) {
+        if (!routeData || !Array.isArray(routeData.routes)) {
+            return;
+        }
+
+        routeData.routes.forEach((route) => {
+            const coordinates = parseLineStringWkt(route.wkt);
+            if (!coordinates.length) {
+                return;
+            }
+
+            const featureCollection = {
+                type: "FeatureCollection",
+                features: [
+                    {
+                        type: "Feature",
+                        properties: {},
+                        geometry: {
+                            type: "LineString",
+                            coordinates,
+                        },
+                    },
+                ],
+            };
+
+            const addedFeatures = map.data.addGeoJson(featureCollection);
+            addedFeatures.forEach((feature) => {
+                feature.setProperty("featureKind", "route");
+                feature.setProperty("routeId", route.route_id);
+                feature.setProperty("isBest", route.route_id === routeData.best_route_id);
+                feature.setProperty("shadowArea", route.shadow_area_m2 || 0);
+                feature.setProperty("shadowLength", route.shadow_length_m || 0);
+                feature.setProperty("distance", route.distance_m || 0);
+                feature.setProperty("duration", route.duration || "");
+                feature.setProperty("description", route.description || "");
+            });
+        });
+    }
+
+    function parseLineStringWkt(wkt) {
+        if (!wkt) {
+            return [];
+        }
+
+        const match = wkt.match(/LINESTRING\s*\((.+)\)/i);
+        if (!match) {
+            console.warn("Unsupported WKT format", wkt);
+            return [];
+        }
+
+        return match[1]
+            .split(",")
+            .map((pair) => pair.trim().split(/\s+/).map(Number))
+            .map(([lng, lat]) => [lng, lat]);
+    }
+
+    /**
+     * Update a map's viewport to fit each geometry in a dataset
+     */
+    function zoom(map) {
+        const bounds = new google.maps.LatLngBounds();
+
+        map.data.forEach((feature) => {
+            const geometry = feature.getGeometry();
+
+            if (geometry) {
+                processPoints(geometry, bounds.extend, bounds);
+            }
+        });
+        map.fitBounds(bounds);
+    }
+
+    /**
+     * Process each point in a Geometry, regardless of how deep the points may lie.
+     */
+    function processPoints(geometry, callback, thisArg) {
+        if (geometry instanceof google.maps.LatLng) {
+            callback.call(thisArg, geometry);
+        } else if (geometry instanceof google.maps.Data.Point) {
+            callback.call(thisArg, geometry.get());
+        } else {
+            // @ts-ignore
+            geometry.getArray().forEach((g) => {
+                processPoints(g, callback, thisArg);
+            });
+        }
+    }
+
+    function initialize() {
+        initMap();
+        loadShadowGeoJson(geoJSON);
+        loadRouteDemo(routeDemoData);
+        zoom(map);
+    }
+
+    const geoJSON = ""
+
+    window.initialize = initialize;
+
+
+    // Demo routes：可將 shadow_route_optimizer.py 的輸出貼到此常數作為展示資料
+    const routeDemoData = ""
+</script>
+</html>

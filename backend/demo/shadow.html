@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <title>Shadow Area Demo</title>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCgjG5Kk_WD-F3oAIwgLtOSMb4IIsW6Cnc"></script>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      font-family: sans-serif;
+    }
+    #map {
+      height: 100%;
+      width: 100%;
+    }
+    #info {
+      position: absolute;
+      top: 1rem;
+      left: 1rem;
+      background: rgba(33, 33, 33, 0.8);
+      color: #fff;
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      max-width: 320px;
+      line-height: 1.4;
+    }
+    #info strong {
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+    #status {
+      margin-top: 0.3rem;
+      font-size: 0.8rem;
+    }
+    #sliderWrapper {
+      margin-top: 0.5rem;
+      font-size: 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    #hourSlider,
+    #radiusSlider {
+      width: 100%;
+    }
+    #playControls {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    #playButton {
+      padding: 0.25rem 0.6rem;
+      border: none;
+      border-radius: 4px;
+      background: #64b5f6;
+      color: #0d47a1;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    #playButton.playing {
+      background: #e57373;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+<div id="map"></div>
+<div id="info">
+  <strong>即時區域陰影</strong>
+  <div>中心：<span id="centerText"></span></div>
+  <div>建物數量：<span id="buildingCount">0</span></div>
+  <div id="sliderWrapper">
+    時間：<span id="timeText"></span>
+    <input type="range" id="hourSlider" min="0" max="23" value="9" />
+    <div id="playControls">
+      <button id="playButton">播放</button>
+      <small>（自動每 2 秒 +1 小時，至太陽下山後回到 06:00）</small>
+    </div>
+    範圍：<span id="radiusText"></span>
+    <input type="range" id="radiusSlider" min="100" max="1500" step="50" value="500" />
+    <small>（點擊地圖設定中心，拖曳此滑桿調整半徑）</small>
+  </div>
+  <div id="status">等待地圖事件...</div>
+</div>
+<script>
+  const DEFAULT_RADIUS_M = 500;
+  const DEFAULT_CENTER = { lat: 25.02177462502842, lng: 121.53512676260097 };
+  const API_ENDPOINT = 'http://127.0.0.1:8000/shadow-area';
+
+  let map;
+  let shadowFeatures = [];
+  let circle;
+  let fetchTimer = null;
+  let currentHour = 9;
+  let playTimer = null;
+  let searchRadius = DEFAULT_RADIUS_M;
+
+  function initMap() {
+    map = new google.maps.Map(document.getElementById('map'), {
+      center: DEFAULT_CENTER,
+      zoom: 16,
+      gestureHandling: 'greedy',
+      mapTypeControl: true,
+      mapTypeControlOptions: {
+        position: google.maps.ControlPosition.TOP_RIGHT,
+      },
+    });
+
+    circle = new google.maps.Circle({
+      map,
+      center: DEFAULT_CENTER,
+      radius: searchRadius,
+      strokeColor: '#1565c0',
+      strokeOpacity: 0.6,
+      strokeWeight: 2,
+      fillColor: '#64b5f6',
+      fillOpacity: 0.08,
+    });
+
+    const slider = document.getElementById('hourSlider');
+    const radiusSlider = document.getElementById('radiusSlider');
+    const playButton = document.getElementById('playButton');
+    slider.addEventListener('input', () => {
+      currentHour = parseInt(slider.value, 10);
+      updateTimeText();
+      scheduleShadowFetch();
+    });
+    radiusSlider.addEventListener('input', () => {
+      searchRadius = parseInt(radiusSlider.value, 10);
+      updateRadiusText();
+      circle.setRadius(searchRadius);
+      scheduleShadowFetch();
+    });
+    playButton.addEventListener('click', () => togglePlay(playButton));
+
+    map.addListener('idle', () => scheduleShadowFetch());
+    map.addListener('click', (event) => {
+      map.panTo(event.latLng);
+      const coords = { lat: event.latLng.lat(), lng: event.latLng.lng() };
+      circle.setCenter(coords);
+      updateCenterText(coords);
+      fetchShadow(coords);
+    });
+    updateCenterText(DEFAULT_CENTER);
+    updateTimeText();
+    updateRadiusText();
+    fetchShadow(DEFAULT_CENTER);
+  }
+
+  function togglePlay(button) {
+    if (playTimer) {
+      clearInterval(playTimer);
+      playTimer = null;
+      button.classList.remove('playing');
+      button.textContent = '播放';
+      return;
+    }
+
+    button.classList.add('playing');
+    button.textContent = '停止';
+    playTimer = setInterval(() => {
+      currentHour = (currentHour + 1) % 24;
+      document.getElementById('hourSlider').value = currentHour;
+      updateTimeText();
+      scheduleShadowFetch();
+    }, 2000);
+  }
+
+  function scheduleShadowFetch() {
+    if (fetchTimer) {
+      clearTimeout(fetchTimer);
+    }
+    fetchTimer = setTimeout(() => {
+      const center = map.getCenter();
+      const coords = { lat: center.lat(), lng: center.lng() };
+      circle.setCenter(coords);
+      updateCenterText(coords);
+      fetchShadow(coords);
+    }, 400);
+  }
+
+  async function fetchShadow(center) {
+    setStatus('載入中...');
+    try {
+      const baseDate = new Date();
+      baseDate.setHours(currentHour, 0, 0, 0);
+      const payload = {
+        center_lat: center.lat,
+        center_lng: center.lng,
+        search_radius_m: searchRadius,
+        timestamp: baseDate.toISOString(),
+        timezone: 'Asia/Taipei',
+      };
+
+      const response = await fetch(API_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        let msg = `API ${response.status}`;
+        try {
+          const errJson = await response.json();
+          msg = errJson.detail || msg;
+        } catch (e) {
+          // ignore parse error
+        }
+        throw new Error(msg);
+      }
+
+      const data = await response.json();
+      renderShadow(data.feature_collection);
+      document.getElementById('buildingCount').textContent = data.building_count ?? 0;
+      if (data.message) {
+        setStatus(data.message);
+        if (data.message.includes('太陽已下山')) {
+          resetToMorning();
+        }
+      } else {
+        setStatus('更新完成');
+      }
+    } catch (err) {
+      console.error(err);
+      setStatus('載入失敗：' + err.message);
+    }
+  }
+
+  function renderShadow(geoJson) {
+    shadowFeatures.forEach((feature) => map.data.remove(feature));
+    shadowFeatures = [];
+    if (!geoJson || !geoJson.features || !geoJson.features.length) {
+      return;
+    }
+    map.data.setStyle({
+      fillColor: '#5e35b1',
+      fillOpacity: 0.4,
+      strokeColor: '#4527a0',
+      strokeWeight: 1,
+    });
+    shadowFeatures = map.data.addGeoJson(geoJson);
+  }
+
+  function updateCenterText(center) {
+    document.getElementById('centerText').textContent = `${center.lat.toFixed(6)}, ${center.lng.toFixed(6)}`;
+  }
+
+  function updateTimeText() {
+    const text = document.getElementById('timeText');
+    text.textContent = `${String(currentHour).padStart(2, '0')}:00`;
+  }
+
+  function updateRadiusText() {
+    const text = document.getElementById('radiusText');
+    text.textContent = `${searchRadius} 公尺`;
+  }
+
+  function setStatus(text) {
+    document.getElementById('status').textContent = text;
+  }
+
+  function resetToMorning() {
+    currentHour = 6;
+    document.getElementById('hourSlider').value = currentHour;
+    updateTimeText();
+    if (playTimer) {
+      scheduleShadowFetch();
+    }
+  }
+
+  window.addEventListener('load', initMap);
+</script>
+</body>
+</html>
