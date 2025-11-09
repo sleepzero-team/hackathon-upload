@@ -1,0 +1,182 @@
+@import "tailwindcss";
+@import "tailwindcss-safe-area";
+@import "@nuxt/ui";
+
+@theme static {
+  --font-sans: "PingFang TC", Roboto, ui-sans-serif, "system-ui", "sans-serif", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  
+  --color-primary-50: #edf8fa;
+  --color-primary-100: #dbf1f5;
+  --color-primary-200: #b4e2ea;
+  --color-primary-300: #93d4df;
+  --color-primary-400: #71c5d5;
+  --color-primary-500: #2eb6c7;
+  --color-primary-600: #468d9b;
+  --color-primary-700: #356c77;
+  --color-primary-800: #22474e;
+  --color-primary-900: #112629;
+  --color-primary-950: #081315;
+
+  --color-secondary-50: #fdf8ed;
+  --color-secondary-100: #fcf2df;
+  --color-secondary-200: #f8e3bc;
+  --color-secondary-300: #f4d69e;
+  --color-secondary-400: #edbb60;
+  --color-secondary-500: #f5ba4b;
+  --color-secondary-600: #e7a43c;
+  --color-secondary-700: #b07d2c;
+  --color-secondary-800: #74521b;
+  --color-secondary-900: #3c2b0b;
+  --color-secondary-950: #1c1304;
+
+  --color-warn-100: #ea686f;
+  --color-warn-200: #e5464b;
+
+  --shadow-card: 0px 4px 12px 0px rgba(0, 0, 0, 0.1);
+}
+
+@layer base {
+  :root {
+    --app-viewport-height: 100vh;
+  }
+
+  html,
+  body {
+    height: var(--app-viewport-height);
+    min-height: var(--app-viewport-height);
+    width: 100%;
+  }
+
+  body {
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #__nuxt,
+  #__layout {
+    height: 100%;
+  }
+
+  button {
+    touch-action: manipulation;
+  }
+
+  @supports (height: 100dvh) {
+    :root {
+      --app-viewport-height: 100dvh;
+    }
+  }
+
+  @supports (-webkit-touch-callout: none) {
+    body {
+      position: fixed;
+      inset: 0;
+    }
+  }
+}
+
+@utility search-button {
+  @apply bg-primary-500 p-1 rounded-lg;
+  @apply h-11 w-11;
+  @apply flex justify-center items-center;
+  @apply -translate-x-1;
+}
+
+@utility absolute-y-center {
+  @apply absolute top-1/2 -translate-y-1/2;
+}
+
+@utility absolute-x-center {
+  @apply absolute left-1/2 -translate-x-1/2;
+}
+
+@layer components {
+  @keyframes map-player-floating {
+    0% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-6px);
+    }
+    100% {
+      transform: translateY(0);
+    }
+  }
+
+  .map-player-marker {
+    position: relative;
+    display: inline-flex;
+    justify-content: center;
+    align-items: flex-end;
+    --pin: var(--color-red-700);
+  }
+
+  .map-player-marker::before,
+  .map-player-marker::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    pointer-events: none;
+    transform-origin: center;
+    z-index: 0;
+  }
+
+  .map-player-marker::before {
+    bottom: -18px;
+    width: 42px;
+    height: 14px;
+    background: rgba(15, 23, 42, 0.28);
+    border-radius: 999px;
+    transform: translateX(-50%);
+    filter: blur(4px);
+  }
+
+  .map-player-marker::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: -8px;
+    width: 18px;
+    height: 16px;
+    background: var(--color-red-700);
+    transform: translateX(-50%);
+    clip-path: polygon(8% 0, 92% 0, 56% 86%, 52% 100%, 48% 100%, 44% 86%);
+    filter: drop-shadow(0 10px 18px rgba(239, 68, 68, 0.35));
+    z-index: 0;
+  }
+
+  .map-player-marker__sprite-wrapper {
+    display: inline-flex;
+    justify-content: center;
+    align-items: flex-end;
+    position: relative;
+    z-index: 1;
+    margin-bottom: 25px;
+    transform-origin: center bottom;
+  }
+
+  .map-player-marker__sprite {
+    display: block;
+    width: 64px;
+    height: 57px;
+    transform-origin: center bottom;
+    /* transition: transform 0.25s ease-out; */
+  }
+
+  .map-player-marker[data-player-idle="true"][data-player-flipping="false"] .map-player-marker__sprite-wrapper {
+    animation: map-player-floating 2s ease-in-out infinite;
+  }
+
+  .map-player-marker[data-player-flipping="true"] .map-player-marker__sprite-wrapper {
+    animation: none;
+  }
+
+  .map-player-marker[data-player-facing="right"] .map-player-marker__sprite {
+    transform: scaleX(-1);
+  }
+
+  .map-player-marker[data-player-facing="left"] .map-player-marker__sprite {
+    transform: scaleX(1);
+  }
+}
